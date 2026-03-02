@@ -6,6 +6,10 @@ Supports both full 14-DOF and right-arm-only 6-DOF models via config.
 When action_indices is set in config, only those joints are predicted by
 the model; other joints hold their current position, base velocity = 0.
 
+Per-part models (per_part.enabled=true in config) return action chunks
+[B, chunk_size, action_dim] and use action chunking for efficiency.
+Standard models return [B, action_dim] and infer every step.
+
 Usage:
   python run_inference.py --task "Pick and place object"
   python run_inference.py --task "Pick and place object" --steps 100 --fps 15
@@ -27,9 +31,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 # ---- Defaults (right-arm model) ----
-DEFAULT_MODEL = Path.home() / "crab_smolvla_distill/outputs/crab_smolvla_right_arm_v2/best/model.pt"
-DEFAULT_CONFIG = Path.home() / "crab_smolvla_distill/configs/train_crab_smolvla_right_arm_v2.yaml"
-TRAINING_PKG = Path.home() / "crab_smolvla_distill"
+DEFAULT_MODEL = Path.home() / "crab_smolvla_6dof_right_arm_multitask_12v_v3/best/model.pt"
+DEFAULT_CONFIG = Path.home() / "crab_smolvla_6dof_right_arm_multitask_12v_v3/config.yaml"
+TRAINING_PKG = Path(__file__).resolve().parent.parent.parent
 CRAB_REMOTE_IP = "192.168.50.239"
 
 ACTION_KEYS = [
@@ -236,12 +240,21 @@ def run_inference(
     action_indices = cfg["dataset"].get("action_indices", None)
     state_indices = cfg["dataset"].get("state_indices", None)
 
+    # Detect per-part mode (returns action chunks)
+    per_part_cfg = cfg.get("per_part", None)
+    use_action_chunking = per_part_cfg is not None and per_part_cfg.get("enabled", False)
+
     if action_indices:
         controlled_keys = [ACTION_KEYS[i] for i in action_indices]
         logger.info(f"Partial control mode: predicting {len(action_indices)} joints: {controlled_keys}")
         logger.info(f"Other joints will hold current position, base vel = 0")
     else:
         logger.info(f"Full control mode: predicting all {action_dim} dims")
+
+    if use_action_chunking:
+        logger.info(f"Action chunking enabled: {chunk_size} actions per inference")
+    else:
+        logger.info("Step-by-step inference (no action chunking)")
 
     # Warmup
     logger.info("Warming up model...")
@@ -282,55 +295,82 @@ def run_inference(
             steps_this_episode = 0
             model.smolvla.reset()
 
-            while steps_this_episode < max_steps:
-                step_start = time.perf_counter()
+            if use_action_chunking:
+                # === ACTION CHUNKING LOOP (per-part models) ===
+                while steps_this_episode < max_steps:
+                    obs = robot.get_observation()
+                    batch = obs_to_batch(obs, task, image_size, chunk_size, device,
+                                         state_indices=state_indices, action_dim=action_dim)
 
-                # Get fresh observation
-                obs = robot.get_observation()
+                    t0 = time.perf_counter()
+                    with torch.no_grad(), torch.cuda.amp.autocast():
+                        action = model.predict_action(batch)
+                    inf_time = (time.perf_counter() - t0) * 1000
+                    inference_times.append(inf_time)
 
-                # Build batch
-                batch = obs_to_batch(obs, task, image_size, chunk_size, device,
-                                     state_indices=state_indices, action_dim=action_dim)
+                    # action shape: [1, chunk_size, action_dim]
+                    action_chunk = action[0].float().cpu().numpy()  # [chunk_size, action_dim]
 
-                # Predict
-                t0 = time.perf_counter()
-                with torch.no_grad(), torch.cuda.amp.autocast():
-                    action = model.predict_action(batch)
-                inf_time = (time.perf_counter() - t0) * 1000
-                inference_times.append(inf_time)
+                    # Execute all actions in chunk at target FPS
+                    for i in range(min(chunk_size, max_steps - steps_this_episode)):
+                        step_start = time.perf_counter()
+                        action_dict = build_action_dict(action_chunk[i], obs, action_indices)
+                        robot.send_action(action_dict)
 
-                action_np = action[0].float().cpu().numpy()  # [action_dim]
+                        steps_this_episode += 1
+                        total_steps += 1
 
-                # Build full 14-dim action dict (handles partial control)
-                action_dict = build_action_dict(action_np, obs, action_indices)
+                        elapsed = time.perf_counter() - step_start
+                        if elapsed < target_dt:
+                            precise_sleep(target_dt - elapsed)
 
-                robot.send_action(action_dict)
+                    logger.info(
+                        f"  Step {steps_this_episode}/{max_steps} | "
+                        f"inference={inf_time:.0f}ms | chunk={chunk_size} | "
+                        f"base=({action_dict['base_x.vel']:.3f}, {action_dict['base_theta.vel']:.3f})"
+                    )
+            else:
+                # === STEP-BY-STEP LOOP (standard models) ===
+                while steps_this_episode < max_steps:
+                    step_start = time.perf_counter()
 
-                steps_this_episode += 1
-                total_steps += 1
+                    obs = robot.get_observation()
+                    batch = obs_to_batch(obs, task, image_size, chunk_size, device,
+                                         state_indices=state_indices, action_dim=action_dim)
 
-                # Maintain FPS
-                elapsed = time.perf_counter() - step_start
-                if elapsed < target_dt:
-                    precise_sleep(target_dt - elapsed)
+                    t0 = time.perf_counter()
+                    with torch.no_grad(), torch.cuda.amp.autocast():
+                        action = model.predict_action(batch)
+                    inf_time = (time.perf_counter() - t0) * 1000
+                    inference_times.append(inf_time)
 
-                if steps_this_episode % 30 == 0:
-                    # Show raw model output vs deadzoned output
-                    if action_indices and (12 in action_indices or 13 in action_indices):
-                        raw_bx = float(action_np[action_indices.index(12)]) if 12 in action_indices else 0
-                        raw_bt = float(action_np[action_indices.index(13)]) if 13 in action_indices else 0
-                        logger.info(
-                            f"  Step {steps_this_episode}/{max_steps} | "
-                            f"inference={inf_time:.0f}ms | "
-                            f"raw=({raw_bx:.4f},{raw_bt:.4f}) → "
-                            f"out=({action_dict['base_x.vel']:.3f},{action_dict['base_theta.vel']:.3f})"
-                        )
-                    else:
-                        logger.info(
-                            f"  Step {steps_this_episode}/{max_steps} | "
-                            f"inference={inf_time:.0f}ms | "
-                            f"base_vel=({action_dict['base_x.vel']:.3f}, {action_dict['base_theta.vel']:.3f})"
-                        )
+                    action_np = action[0].float().cpu().numpy()  # [action_dim]
+                    action_dict = build_action_dict(action_np, obs, action_indices)
+                    robot.send_action(action_dict)
+
+                    steps_this_episode += 1
+                    total_steps += 1
+
+                    elapsed = time.perf_counter() - step_start
+                    if elapsed < target_dt:
+                        precise_sleep(target_dt - elapsed)
+
+                    if steps_this_episode % 30 == 0:
+                        if action_indices and (12 in action_indices or 13 in action_indices):
+                            raw_bx = float(action_np[action_indices.index(12)]) if 12 in action_indices else 0
+                            raw_bt = float(action_np[action_indices.index(13)]) if 13 in action_indices else 0
+                            logger.info(
+                                f"  Step {steps_this_episode}/{max_steps} | "
+                                f"inference={inf_time:.0f}ms | "
+                                f"raw=({raw_bx:.4f},{raw_bt:.4f}) → "
+                                f"out=({action_dict['base_x.vel']:.3f},{action_dict['base_theta.vel']:.3f})"
+                            )
+                        else:
+                            logger.info(
+                                f"  Step {steps_this_episode}/{max_steps} | "
+                                f"inference={inf_time:.0f}ms | "
+                                f"base_vel=({action_dict['base_x.vel']:.3f}, {action_dict['base_theta.vel']:.3f})"
+                            )
 
             logger.info(f"Episode {episode + 1} complete ({steps_this_episode} steps)")
 
@@ -344,7 +384,11 @@ def run_inference(
         if inference_times:
             avg = np.mean(inference_times)
             std = np.std(inference_times)
-            logger.info(f"Inference: {avg:.0f} +/- {std:.0f} ms ({len(inference_times)} chunks)")
+            logger.info(f"Inference: {avg:.0f} +/- {std:.0f} ms ({len(inference_times)} calls)")
+            if use_action_chunking:
+                chunk_exec_time = chunk_size / fps
+                effective_fps = chunk_size / (avg / 1000 + chunk_exec_time)
+                logger.info(f"Effective FPS: ~{effective_fps:.1f} (chunk={chunk_size}, exec={chunk_exec_time:.1f}s)")
         logger.info(f"Total steps executed: {total_steps}")
 
 
