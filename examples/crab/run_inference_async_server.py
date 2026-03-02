@@ -177,10 +177,14 @@ def obs_to_batch(
 class CrabPolicyServer(PolicyServer):
     """PolicyServer that loads CrabSmolVLAWrapper instead of using from_pretrained."""
 
-    def __init__(self, config: PolicyServerConfig, model, model_cfg: dict):
+    def __init__(self, config: PolicyServerConfig, model, model_cfg: dict, rtc_enabled: bool = False):
         super().__init__(config)
         self.crab_model = model
         self.model_cfg = model_cfg
+        self.rtc_enabled = rtc_enabled
+        self._prev_chunk_left_over = None
+        self._last_inference_time = 0.0
+        self._last_chunk_timestamp = 0.0
         self.image_size = tuple(model_cfg["dataset"]["image_size"])
         self.chunk_size = model_cfg["model"]["chunk_size"]
         self.action_dim = model_cfg["model"].get("action_dim", 14)
@@ -210,7 +214,11 @@ class CrabPolicyServer(PolicyServer):
         return services_pb2.Empty()
 
     def _predict_action_chunk(self, observation_t: TimedObservation) -> list[TimedAction]:
-        """Run inference using CrabSmolVLAWrapper pipeline (same as run_inference.py)."""
+        """Run inference using CrabSmolVLAWrapper pipeline (same as run_inference.py).
+
+        When RTC is enabled, passes inference_delay and prev_chunk_left_over
+        to predict_action_chunk for prefix guidance.
+        """
         raw_obs = observation_t.get_observation()
         task = raw_obs.get("task", "")
 
@@ -227,16 +235,49 @@ class CrabPolicyServer(PolicyServer):
         prep_time = time.perf_counter() - start
 
         inf_start = time.perf_counter()
-        with torch.no_grad(), torch.cuda.amp.autocast():
-            # Use predict_action_chunk on the underlying SmolVLA for full chunk
-            # prepare_batch_for_smolvla handles state_augment_proj + camera remapping
-            smolvla_batch = self.crab_model.prepare_batch_for_smolvla(batch)
-            action = self.crab_model.smolvla.predict_action_chunk(smolvla_batch)
+        smolvla_batch = self.crab_model.prepare_batch_for_smolvla(batch)
+
+        if self.rtc_enabled:
+            # RTC needs gradients for prefix guidance (torch.enable_grad inside denoise_step)
+            # Compute inference delay from measured latency
+            fps = self.config.fps or 15
+            inference_delay = max(1, int(round(self._last_inference_time * fps)))
+
+            with torch.cuda.amp.autocast():
+                action = self.crab_model.smolvla.predict_action_chunk(
+                    smolvla_batch,
+                    inference_delay=inference_delay,
+                    prev_chunk_left_over=self._prev_chunk_left_over,
+                )
+        else:
+            with torch.no_grad(), torch.cuda.amp.autocast():
+                action = self.crab_model.smolvla.predict_action_chunk(smolvla_batch)
+
         inf_time = time.perf_counter() - inf_start
+        self._last_inference_time = inf_time
 
         # action: [B, chunk_size, max_action_dim] -> crop to action_dim, trim, squeeze
         if action.shape[-1] > self.action_dim:
             action = action[..., : self.action_dim]
+
+        # For RTC: store full action chunk as leftover for next call's prefix guidance
+        if self.rtc_enabled:
+            now = time.perf_counter()
+            if self._last_chunk_timestamp > 0:
+                elapsed = now - self._last_chunk_timestamp
+                fps = self.config.fps or 15
+                consumed = min(int(elapsed * fps), self.chunk_size)
+            else:
+                consumed = 0
+            self._last_chunk_timestamp = now
+
+            # Store unconsumed portion of current chunk for next RTC guidance
+            full_action = action.squeeze(0)  # [chunk_size, action_dim]
+            if consumed < full_action.shape[0]:
+                self._prev_chunk_left_over = full_action[consumed:].clone().detach()
+            else:
+                self._prev_chunk_left_over = None
+
         action = action[:, : self.actions_per_chunk, :].squeeze(0).float()
 
         # Pad partial actions (e.g. 6-DOF right arm) to full robot action space (14-DOF)
@@ -251,11 +292,18 @@ class CrabPolicyServer(PolicyServer):
             observation_t.get_timestamp(), list(action), observation_t.get_timestep()
         )
 
+        rtc_info = ""
+        if self.rtc_enabled:
+            fps = self.config.fps or 15
+            delay = max(1, int(round(self._last_inference_time * fps)))
+            has_prev = self._prev_chunk_left_over is not None
+            rtc_info = f" | rtc_delay={delay} prev={'yes' if has_prev else 'no'}"
+
         self.crab_logger.info(
             f"Obs #{observation_t.get_timestep()} | "
             f"prep={prep_time * 1000:.0f}ms | "
             f"inference={inf_time * 1000:.0f}ms | "
-            f"actions={len(action_chunk)}"
+            f"actions={len(action_chunk)}{rtc_info}"
         )
         return action_chunk
 
@@ -267,6 +315,12 @@ def main():
     parser.add_argument("--host", default="0.0.0.0", help="Host address (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8080, help="Port (default: 8080)")
     parser.add_argument("--fps", type=int, default=15, help="Target FPS (default: 15)")
+    parser.add_argument("--rtc", action="store_true",
+                        help="Enable Real-Time Chunking")
+    parser.add_argument("--rtc-horizon", type=int, default=10,
+                        help="RTC execution horizon (default: 10)")
+    parser.add_argument("--rtc-guidance", type=float, default=10.0,
+                        help="RTC max guidance weight (default: 10.0)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -276,9 +330,23 @@ def main():
     cfg = load_config(args.config)
     model = load_model(cfg, args.model, device)
 
+    # RTC initialization
+    if args.rtc:
+        from lerobot.policies.rtc.configuration_rtc import RTCConfig
+        from lerobot.configs.types import RTCAttentionSchedule
+        rtc_cfg = RTCConfig(
+            enabled=True,
+            execution_horizon=args.rtc_horizon,
+            max_guidance_weight=args.rtc_guidance,
+            prefix_attention_schedule=RTCAttentionSchedule.LINEAR,
+        )
+        model.smolvla.config.rtc_config = rtc_cfg
+        model.smolvla.init_rtc_processor()
+        logger.info(f"RTC enabled: horizon={args.rtc_horizon}, guidance={args.rtc_guidance}")
+
     # Start gRPC server with custom PolicyServer
     server_config = PolicyServerConfig(host=args.host, port=args.port, fps=args.fps)
-    policy_server = CrabPolicyServer(server_config, model, cfg)
+    policy_server = CrabPolicyServer(server_config, model, cfg, rtc_enabled=args.rtc)
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     services_pb2_grpc.add_AsyncInferenceServicer_to_server(policy_server, server)

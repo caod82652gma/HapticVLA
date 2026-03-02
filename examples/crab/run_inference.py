@@ -410,6 +410,20 @@ def main():
     parser.add_argument("--turn-deadzone", type=float, default=None,
                         help="Turn velocity deadzone (default: 0.02). |base_theta| below this → 0.")
     parser.add_argument("--test", action="store_true", help="Test model loading only (no robot)")
+    parser.add_argument("--async-server", action="store_true",
+                        help="Launch async gRPC inference server")
+    parser.add_argument("--async-client", action="store_true",
+                        help="Launch async gRPC robot client")
+    parser.add_argument("--async-port", type=int, default=8080,
+                        help="gRPC port for async mode (default: 8080)")
+    parser.add_argument("--server-address", type=str, default="localhost:8080",
+                        help="PolicyServer address for async client")
+    parser.add_argument("--rtc", action="store_true",
+                        help="Enable Real-Time Chunking (async server only)")
+    parser.add_argument("--rtc-horizon", type=int, default=10,
+                        help="RTC execution horizon (default: 10)")
+    parser.add_argument("--rtc-guidance", type=float, default=10.0,
+                        help="RTC max guidance weight (default: 10.0)")
 
     args = parser.parse_args()
 
@@ -426,6 +440,37 @@ def main():
         if args.turn_deadzone is not None:
             BASE_ANGULAR_DEADZONE = args.turn_deadzone
         logger.info(f"Deadzones: forward={BASE_LINEAR_DEADZONE}, turn={BASE_ANGULAR_DEADZONE}")
+
+    if args.async_server:
+        server_argv = [
+            "run_inference_async_server.py",
+            "-m", args.model,
+            "-c", args.config,
+            "--port", str(args.async_port),
+            "--fps", str(args.fps),
+        ]
+        if args.rtc:
+            server_argv.append("--rtc")
+            server_argv.extend(["--rtc-horizon", str(args.rtc_horizon)])
+            server_argv.extend(["--rtc-guidance", str(args.rtc_guidance)])
+        sys.argv = server_argv
+        from run_inference_async_server import main as server_main
+        server_main()
+        return
+
+    if args.async_client:
+        client_argv = [
+            "run_inference_async_client.py",
+            "-m", args.model,
+            "-t", args.task,
+            "--server", args.server_address,
+            "--robot-ip", args.robot_ip,
+            "--fps", str(args.fps),
+        ]
+        sys.argv = client_argv
+        from run_inference_async_client import main as client_main
+        client_main()
+        return
 
     if args.test:
         run_test(cfg, args.model, device)
