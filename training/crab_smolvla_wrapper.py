@@ -625,7 +625,10 @@ class CrabSmolVLAWrapper(nn.Module):
 
 def build_model(cfg: dict) -> CrabSmolVLAWrapper:
     """Build the CrabSmolVLA model from config."""
-    from tactile_encoder import DualTactileEncoder
+    try:
+        from training.tactile_encoder import DualTactileEncoder
+    except ImportError:
+        from tactile_encoder import DualTactileEncoder
 
     model_cfg = cfg["model"]
 
