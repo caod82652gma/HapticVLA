@@ -1,0 +1,107 @@
+# Right arm 6-DOF no tactile (v4) — with data augmentation + improved hyperparams.
+# 27 clean datasets: egg (11) + marmalade (7) + waffles (9).
+# Changes from v3: augmentation, weight_decay=0.01, grad_accum=4 (eff batch=32).
+
+experiment:
+  name: "crab_smolvla_6dof_right_arm_multitask_12v_v4"
+  seed: 42
+  output_dir: "outputs/crab_smolvla_6dof_right_arm_multitask_12v_v4"
+  resume_from_checkpoint: null
+
+model:
+  pretrained_path: "lerobot/smolvla_base"
+  chunk_size: 50
+  n_action_steps: 50
+  max_state_dim: 32
+  max_action_dim: 32
+  action_dim: 6
+  state_dim: 6
+  num_steps: 10
+  freeze_vision_encoder: true
+  train_expert_only: true
+  train_state_proj: true
+  tactile_encoder:
+    enabled: false
+
+dataset:
+  episodes_dir: "../datasets"
+  episode_names:
+    # --- Egg 12V clean (11 datasets) ---
+    - "egg_carton_to_tray/pick_place_soft_20260217_1847"
+    - "egg_carton_to_tray/pick_place_soft_20260217_1905"
+    - "egg_carton_to_tray/pick_place_soft_20260217_2003"
+    - "egg_carton_to_tray/pick_place_soft_20260217_2020"
+    - "egg_carton_to_tray/pick_place_soft_20260218_1414"
+    - "egg_carton_to_tray/pick_place_soft_20260218_1422"
+    - "egg_carton_to_tray/pick_place_soft_20260218_1429"
+    - "egg_carton_to_tray/pick_place_soft_20260218_1446"
+    - "egg_carton_to_tray/pick_place_soft_20260219_1759"
+    - "egg_carton_to_tray/pick_place_medium_20260226_1638"
+    - "egg_carton_to_tray/pick_place_medium_20260226_1649"
+    # --- Marmalade jar clean (7 datasets) ---
+    - "marmalade_jar/pick_place_medium_20260226_1659"
+    - "marmalade_jar/pick_place_medium_20260226_1707"
+    - "marmalade_jar/pick_place_medium_20260226_1713_2"
+    - "marmalade_jar/pick_place_medium_20260226_1717"
+    - "marmalade_jar/pick_place_medium_20260226_1722"
+    - "marmalade_jar/pick_place_medium_20260227_1636"
+    - "marmalade_jar/pick_place_medium_20260227_1641"
+    # --- Waffles clean (9 datasets) ---
+    - "waffles/pick_place_soft_20260226_1727"
+    - "waffles/pick_place_soft_20260226_1734"
+    - "waffles/pick_place_soft_20260226_1738"
+    - "waffles/pick_place_soft_20260226_1743"
+    - "waffles/pick_place_soft_20260226_1748"
+    - "waffles/pick_place_soft_20260227_1507"
+    - "waffles/pick_place_soft_20260227_1611"
+    - "waffles/pick_place_soft_20260227_1616"
+    - "waffles/pick_place_soft_20260227_1621"
+  action_indices: [6, 7, 8, 9, 10, 11]
+  state_indices: [6, 7, 8, 9, 10, 11]
+  image_keys:
+    - "observation.images.main_camera"
+    - "observation.images.left_arm_camera"
+    - "observation.images.right_arm_camera"
+  fps: 15
+  image_size: [256, 256]
+  original_image_size: [480, 640]
+  video_codec: "av1"
+  task_description: "Pick and place the object"
+  val_ratio: 0.1
+  num_workers: 0
+  video_cache_dir: "/tmp/crab_video_cache"
+  augmentation:
+    enabled: true
+    color_jitter:
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.2
+      hue: 0.05
+    random_crop:
+      enabled: true
+      scale: [0.9, 1.0]
+
+training:
+  batch_size: 8
+  gradient_accumulation_steps: 4
+  steps: 50000
+  warmup_steps: 2000
+  optimizer: "adamw"
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  grad_clip_norm: 10.0
+  scheduler: "cosine_with_warmup"
+  decay_steps: 50000
+  min_lr: 2.5e-6
+  use_amp: true
+  amp_dtype: "bfloat16"
+  checkpoint:
+    save_every_steps: 5000
+    keep_last_n: 5
+    save_optimizer: true
+    save_best: true
+  log_every_steps: 50
+  eval_every_steps: 2500
+  visualize_every_steps: 1000

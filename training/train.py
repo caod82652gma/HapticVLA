@@ -30,6 +30,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 def load_config(config_path: str) -> dict:
     import yaml
+
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
     cfg["_config_dir"] = str(Path(config_path).parent.parent)
@@ -41,7 +42,9 @@ def build_optimizer(model, cfg):
     params = [p for p in model.parameters() if p.requires_grad]
     n_trainable = sum(p.numel() for p in params)
     n_total = sum(p.numel() for p in model.parameters())
-    logger.info(f"Trainable params: {n_trainable:,} / {n_total:,} ({100*n_trainable/n_total:.1f}%)")
+    logger.info(
+        f"Trainable params: {n_trainable:,} / {n_total:,} ({100 * n_trainable / n_total:.1f}%)"
+    )
     return torch.optim.AdamW(
         params,
         lr=train_cfg["learning_rate"],
@@ -68,7 +71,9 @@ def build_scheduler(optimizer, cfg):
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
-def save_checkpoint(model, optimizer, scheduler, step, train_loss, val_loss, output_dir, is_best=False):
+def save_checkpoint(
+    model, optimizer, scheduler, step, train_loss, val_loss, output_dir, is_best=False
+):
     try:
         ckpt_dir = output_dir / f"step_{step}"
         ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -76,8 +81,16 @@ def save_checkpoint(model, optimizer, scheduler, step, train_loss, val_loss, out
         torch.save(optimizer.state_dict(), ckpt_dir / "optimizer.pt")
         torch.save(scheduler.state_dict(), ckpt_dir / "scheduler.pt")
         with open(ckpt_dir / "metadata.json", "w") as f:
-            json.dump({"step": step, "train_loss": train_loss, "val_loss": val_loss,
-                        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S")}, f, indent=2)
+            json.dump(
+                {
+                    "step": step,
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                },
+                f,
+                indent=2,
+            )
         if is_best:
             best_dir = output_dir / "best"
             if best_dir.exists():
@@ -166,18 +179,26 @@ def evaluate(model, val_loader, device):
 
 def main():
     parser = argparse.ArgumentParser(description="Train CrabSmolVLA")
-    parser.add_argument("--config", "-c", type=str,
-                        default=str(SCRIPT_DIR / "configs" / "train_crab_smolvla.yaml"))
+    parser.add_argument(
+        "--config",
+        "-c",
+        type=str,
+        default=str(SCRIPT_DIR / "configs" / "train_crab_smolvla.yaml"),
+    )
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--steps", type=int, default=None)
     parser.add_argument("--resume", type=str, default=None)
+    parser.add_argument("--init-weights", type=str, default=None,
+                        help="Path to model.pt for weight init (fresh optimizer/scheduler)")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
     if torch.cuda.is_available():
         logger.info(f"GPU: {torch.cuda.get_device_name()}")
-        logger.info(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+        logger.info(
+            f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB"
+        )
 
     cfg = load_config(args.config)
     if args.batch_size:
@@ -189,7 +210,8 @@ def main():
     model_cfg = cfg["model"]
 
     # Build model
-    from training.crab_smolvla_wrapper import build_model
+    from crab_smolvla_wrapper import build_model
+
     logger.info("Building model...")
     model = build_model(cfg)
 
@@ -198,16 +220,31 @@ def main():
     max_state_dim = model_cfg.get("max_state_dim", 32)
     model.smolvla.config.output_features["action"].shape = (max_action_dim,)
     model.smolvla.config.input_features["observation.state"].shape = (max_state_dim,)
-    logger.info(f"Patched SmolVLA config: action=({max_action_dim},), state=({max_state_dim},)")
+    logger.info(
+        f"Patched SmolVLA config: action=({max_action_dim},), state=({max_state_dim},)"
+    )
 
     model.to(device)
     model.train()
 
+    # Load initial weights (if provided -- fresh optimizer/scheduler, not a resume)
+    if args.init_weights:
+        logger.info(f"Loading initial weights from {args.init_weights}")
+        ckpt = torch.load(args.init_weights, map_location=device, weights_only=False)
+        missing, unexpected = model.load_state_dict(ckpt, strict=False)
+        if missing:
+            logger.warning(f"Missing keys ({len(missing)}): {missing[:5]}...")
+        if unexpected:
+            logger.warning(f"Unexpected keys ({len(unexpected)}): {unexpected[:5]}...")
+
     # Build dataloaders
-    from training.crab_dataset import build_dataloaders
+    from crab_dataloader import build_dataloaders
+
     logger.info("Building dataloaders...")
     train_loader, val_loader = build_dataloaders(cfg)
-    logger.info(f"Train: {len(train_loader.dataset)} samples, Val: {len(val_loader.dataset)} samples")
+    logger.info(
+        f"Train: {len(train_loader.dataset)} samples, Val: {len(val_loader.dataset)} samples"
+    )
 
     # Optimizer & scheduler
     optimizer = build_optimizer(model, cfg)
@@ -222,9 +259,19 @@ def main():
     if args.resume:
         resume_dir = Path(args.resume)
         logger.info(f"Resuming from {resume_dir}")
-        model.load_state_dict(torch.load(resume_dir / "model.pt", map_location=device, weights_only=False))
-        optimizer.load_state_dict(torch.load(resume_dir / "optimizer.pt", map_location=device, weights_only=False))
-        scheduler.load_state_dict(torch.load(resume_dir / "scheduler.pt", map_location=device, weights_only=False))
+        model.load_state_dict(
+            torch.load(resume_dir / "model.pt", map_location=device, weights_only=False)
+        )
+        optimizer.load_state_dict(
+            torch.load(
+                resume_dir / "optimizer.pt", map_location=device, weights_only=False
+            )
+        )
+        scheduler.load_state_dict(
+            torch.load(
+                resume_dir / "scheduler.pt", map_location=device, weights_only=False
+            )
+        )
         with open(resume_dir / "metadata.json") as f:
             start_step = json.load(f)["step"]
         logger.info(f"Resumed from step {start_step}")
@@ -237,7 +284,9 @@ def main():
     save_every = train_cfg["checkpoint"]["save_every_steps"]
     best_val_loss = float("inf")
 
-    logger.info(f"Training for {total_steps} steps (batch={train_cfg['batch_size']}, grad_accum={grad_accum}, effective={train_cfg['batch_size']*grad_accum})")
+    logger.info(
+        f"Training for {total_steps} steps (batch={train_cfg['batch_size']}, grad_accum={grad_accum}, effective={train_cfg['batch_size'] * grad_accum})"
+    )
 
     step = start_step
     running_loss = 0.0
@@ -279,7 +328,7 @@ def main():
             if loss_count % grad_accum == 0:
                 nn.utils.clip_grad_norm_(
                     [p for p in model.parameters() if p.requires_grad],
-                    train_cfg["grad_clip_norm"]
+                    train_cfg["grad_clip_norm"],
                 )
                 optimizer.step()
                 optimizer.zero_grad()
@@ -315,7 +364,7 @@ def main():
 
                     msg = (
                         f"step {step}/{total_steps} | loss={avg_loss:.4f} | "
-                        f"lr={lr:.2e} | {sps:.2f} steps/s | ETA: {eta/60:.0f}min"
+                        f"lr={lr:.2e} | {sps:.2f} steps/s | ETA: {eta / 60:.0f}min"
                     )
                     if w_mean is not None:
                         msg += (
@@ -348,12 +397,27 @@ def main():
                     if is_best:
                         best_val_loss = val_loss
                     if step % save_every == 0 or is_best:
-                        save_checkpoint(model, optimizer, scheduler, step,
-                                        running_loss / max(1, loss_count), val_loss, output_dir, is_best)
+                        save_checkpoint(
+                            model,
+                            optimizer,
+                            scheduler,
+                            step,
+                            running_loss / max(1, loss_count),
+                            val_loss,
+                            output_dir,
+                            is_best,
+                        )
 
                 elif step % save_every == 0:
-                    save_checkpoint(model, optimizer, scheduler, step,
-                                    running_loss / max(1, loss_count), best_val_loss, output_dir)
+                    save_checkpoint(
+                        model,
+                        optimizer,
+                        scheduler,
+                        step,
+                        running_loss / max(1, loss_count),
+                        best_val_loss,
+                        output_dir,
+                    )
 
         # End of epoch summary (one full pass over train_loader or until training end)
         if epoch_loss_count > 0:
@@ -399,8 +463,16 @@ def main():
     # Final save
     val_loss = evaluate(model, val_loader, device)
     logger.info(f"Final val_loss={val_loss:.4f}")
-    save_checkpoint(model, optimizer, scheduler, step,
-                    0.0, val_loss, output_dir, is_best=(val_loss < best_val_loss))
+    save_checkpoint(
+        model,
+        optimizer,
+        scheduler,
+        step,
+        0.0,
+        val_loss,
+        output_dir,
+        is_best=(val_loss < best_val_loss),
+    )
     logger.info("Training complete!")
 
 
