@@ -31,8 +31,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 # ---- Defaults (right-arm model) ----
-DEFAULT_MODEL = Path.home() / "crab_smolvla_6dof_right_arm_multitask_12v_v3/best/model.pt"
-DEFAULT_CONFIG = Path.home() / "crab_smolvla_6dof_right_arm_multitask_12v_v3/config.yaml"
+DEFAULT_MODEL = Path.home() / "crab_smolvla_6dof_right_arm_multitask_12v_v4/best/model.pt"
+DEFAULT_CONFIG = Path.home() / "crab_smolvla_6dof_right_arm_multitask_12v_v4/config.yaml"
 TRAINING_PKG = Path(__file__).resolve().parent.parent.parent
 CRAB_REMOTE_IP = "192.168.50.239"
 
