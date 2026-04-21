@@ -3,10 +3,6 @@
 **Contact-rich manipulation via Vision-Language-Action models without
 inference-time tactile sensing.**
 
-<p align="center">
-  <img src="media/paper/teaser.png" width="720" alt="HapticVLA teaser">
-</p>
-
 This is the code release for the preprint
 [*HapticVLA: Contact-Rich Manipulation via Vision-Language-Action Model
 without Inference-Time Tactile Sensing*](https://arxiv.org/abs/2603.15257)
@@ -45,13 +41,6 @@ input at inference.
   <br>
   <sub>Framework overview: offline tactile reward computation, SA-RWFM teacher
   training, and tactile distillation into a vision-only student.</sub>
-</p>
-
-<p align="center">
-  <img src="media/paper/experiments.jpg" width="820" alt="Success rates vs baselines">
-  <br>
-  <sub>Success rates across the three tasks vs. SmolVLA, X-VLA, and VLA-0
-  baselines.</sub>
 </p>
 
 ## Repository layout
