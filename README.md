@@ -11,6 +11,8 @@ without Inference-Time Tactile Sensing*](https://arxiv.org/abs/2603.15257)
 bimanual robot platform (two SO-101 arms with a tactile-instrumented
 gripper) and the training pipeline behind HapticVLA.
 
+**Project page** &rarr; <https://advanced-robotic-manipulation.github.io/websites/hapticvla/>
+
 <p align="center">
   <img src="media/demo/hapticvla.gif" width="480" alt="HapticVLA demo">
   <br>
