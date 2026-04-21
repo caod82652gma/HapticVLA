@@ -5,6 +5,10 @@ SO-101 manipulators, instrumented with a custom tactile gripper and three
 RGB cameras. Inference runs on a Jetson Orin NX; training runs on a single
 workstation / server GPU.
 
+<p align="center">
+  <img src="../../media/paper/robot.png" width="640" alt="Crab robotics platform">
+</p>
+
 ## Manipulators
 
 | Role | Arm | Servos | Gripper |
@@ -26,6 +30,16 @@ by roboninecom, with the tactile sensor array mounted on the fingertips.
 - Per-taxel force range: 1–9 N.
 - Sampling rate: 120 Hz.
 - Driver: `src/lerobot/robots/crab/tactile_sensor.py`.
+
+<p align="center">
+  <img src="../../media/paper/tactile_sensor.jpg" width="300" alt="Tactile array">
+  &nbsp;&nbsp;
+  <img src="../../media/paper/tactile_map.png" width="300" alt="Example tactile map">
+  <br>
+  <sub>Left: 100-taxel tactile array. Right: example 10×10 tactile map during
+  grasping — red/orange indicates high contact force, blue indicates low
+  force.</sub>
+</p>
 
 The sensor is only required at **training** time for the SA-RWFM teacher.
 Once distillation is complete, the student (`armteam/crab-smolvla-hapticsvla`)

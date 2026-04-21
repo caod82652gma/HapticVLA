@@ -3,6 +3,10 @@
 **Contact-rich manipulation via Vision-Language-Action models without
 inference-time tactile sensing.**
 
+<p align="center">
+  <img src="media/paper/teaser.png" width="720" alt="HapticVLA teaser">
+</p>
+
 This is the code release for the preprint
 [*HapticVLA: Contact-Rich Manipulation via Vision-Language-Action Model
 without Inference-Time Tactile Sensing*](https://arxiv.org/abs/2603.15257)
@@ -10,6 +14,12 @@ without Inference-Time Tactile Sensing*](https://arxiv.org/abs/2603.15257)
 [LeRobot](https://github.com/huggingface/lerobot) that adds the **Crab**
 bimanual robot platform (two SO-101 arms with a tactile-instrumented
 gripper) and the training pipeline behind HapticVLA.
+
+<p align="center">
+  <img src="media/demo/hapticvla.gif" width="480" alt="HapticVLA demo">
+  <br>
+  <sub>HapticVLA grasping a fragile object on the Crab platform.</sub>
+</p>
 
 HapticVLA is a two-stage fine-tune of SmolVLA-450M:
 
@@ -29,6 +39,20 @@ On three contact-rich tasks (egg, waffles, marmalade jar) HapticVLA reaches
 **86.7 %** mean success over 20 trials per task, outperforming the SmolVLA,
 X-VLA, and VLA-0 baselines — including variants that receive live tactile
 input at inference.
+
+<p align="center">
+  <img src="media/paper/method.png" width="820" alt="HapticVLA method overview">
+  <br>
+  <sub>Framework overview: offline tactile reward computation, SA-RWFM teacher
+  training, and tactile distillation into a vision-only student.</sub>
+</p>
+
+<p align="center">
+  <img src="media/paper/experiments.jpg" width="820" alt="Success rates vs baselines">
+  <br>
+  <sub>Success rates across the three tasks vs. SmolVLA, X-VLA, and VLA-0
+  baselines.</sub>
+</p>
 
 ## Repository layout
 
