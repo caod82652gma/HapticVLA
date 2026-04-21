@@ -3,9 +3,10 @@
 **Contact-rich manipulation via Vision-Language-Action models without
 inference-time tactile sensing.**
 
-This is the code release for the IROS paper *HapticVLA: Contact-Rich
-Manipulation via Vision-Language-Action Model without Inference-Time Tactile
-Sensing.* The repository is a fork of
+This is the code release for the preprint
+[*HapticVLA: Contact-Rich Manipulation via Vision-Language-Action Model
+without Inference-Time Tactile Sensing*](https://arxiv.org/abs/2603.15257)
+(under review). The repository is a fork of
 [LeRobot](https://github.com/huggingface/lerobot) that adds the **Crab**
 bimanual robot platform (two SO-101 arms with a tactile-instrumented
 gripper) and the training pipeline behind HapticVLA.
@@ -99,16 +100,22 @@ pip install -e .
 
 ## Citation
 
+Preprint — the paper is under review and not yet published. If you use
+this code or the released checkpoints, please cite the arXiv version:
+
 ```bibtex
-@inproceedings{hapticvla2026,
-  title     = {HapticVLA: Contact-Rich Manipulation via Vision-Language-Action
-               Model without Inference-Time Tactile Sensing},
-  author    = {Gubernatorov, Konstantin and Sannikov, Mikhail and
-               Mikhalchuk, Ilya and Fernando, Marcelino and Kuznetsov, Egor
-               and Ogunwoye, Faith Ouwatobi and Asanov, Artem and
-               Artemov, Makar and Guo, Ziang and Tsetserukou, Dzmitry},
-  booktitle = {IROS},
-  year      = {2026}
+@misc{hapticvla2026,
+  title         = {HapticVLA: Contact-Rich Manipulation via Vision-Language-Action
+                   Model without Inference-Time Tactile Sensing},
+  author        = {Gubernatorov, Konstantin and Sannikov, Mikhail and
+                   Mikhalchuk, Ilya and Fernando, Marcelino and Kuznetsov, Egor
+                   and Ogunwoye, Faith Ouwatobi and Asanov, Artem and
+                   Artemov, Makar and Guo, Ziang and Tsetserukou, Dzmitry},
+  year          = {2026},
+  eprint        = {2603.15257},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.RO},
+  url           = {https://arxiv.org/abs/2603.15257}
 }
 ```
 

@@ -15,6 +15,10 @@ workstation / server GPU.
 The 12 V right arm provides the torque headroom needed to manipulate the
 heavier objects (marmalade jar, egg carton) in the paper's task set.
 
+The right arm's parallel gripper shell is based on
+[SO-ARM100/101 Parallel Gripper](https://github.com/roboninecom/SO-ARM100-101-Parallel-Gripper)
+by roboninecom, with the tactile sensor array mounted on the fingertips.
+
 ## Tactile sensor
 
 - Two electrodes, one per fingertip of the right gripper.
