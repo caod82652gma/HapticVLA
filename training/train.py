@@ -3,8 +3,9 @@
 Train CrabSmolVLA on Crab robot pick-and-place datasets.
 
 Usage:
-  python train.py
-  python train.py --config configs/train_crab_smolvla.yaml --batch-size 16
+  python train.py --config configs/train_6dof_right_arm_multitask_12v_v4.yaml
+  python train.py --config configs/train_6dof_right_arm_rwfm_v3.yaml  # SA-RWFM teacher
+  python train.py --config configs/train_distill_rwfm_v3.yaml          # distilled student
 """
 
 import argparse
@@ -183,7 +184,9 @@ def main():
         "--config",
         "-c",
         type=str,
-        default=str(SCRIPT_DIR / "configs" / "train_crab_smolvla.yaml"),
+        default=str(
+            SCRIPT_DIR / "configs" / "train_6dof_right_arm_multitask_12v_v4.yaml"
+        ),
     )
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--steps", type=int, default=None)
