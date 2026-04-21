@@ -1,135 +1,124 @@
-# Crab
+# Crab — HapticVLA
 
-**An open-source bimanual robot platform for haptic-aware manipulation research.**
+**Contact-rich manipulation via Vision-Language-Action models without
+inference-time tactile sensing.**
 
-Crab is a low-cost bimanual robot built for studying how haptic (touch) feedback can improve learned manipulation policies. The core research question: can we train VLA policies *with* haptic sensing, then deploy them *without* — transferring haptic-informed behaviors into vision-only execution?
+This is the code release for the IROS paper *HapticVLA: Contact-Rich
+Manipulation via Vision-Language-Action Model without Inference-Time Tactile
+Sensing.* The repository is a fork of
+[LeRobot](https://github.com/huggingface/lerobot) that adds the **Crab**
+bimanual robot platform (two SO-101 arms with a tactile-instrumented
+gripper) and the training pipeline behind HapticVLA.
 
-Built on [LeRobot](https://github.com/huggingface/lerobot) and [SmolVLA](https://huggingface.co/lerobot/smolvla_450m).
+HapticVLA is a two-stage fine-tune of SmolVLA-450M:
 
----
+1. **SA-RWFM** (Safety-Aware Reward-Weighted Flow Matching). The action
+   expert is trained with a per-sample reward-weighted flow-matching loss
+   using precomputed tactile safety rewards (over-force, peak pressure,
+   concentration, asymmetry, slip) plus episode-level success/damage/risk
+   terms, regularized by an L2 anchor against the initial IL checkpoint.
+2. **Tactile Distillation**. A tactile-free student SmolVLA is initialized
+   from the SA-RWFM teacher (tactile encoder dropped, state projection
+   sliced back to proprioceptive dims) and trained on targets that blend
+   ground-truth demonstrations with precomputed teacher predictions. At
+   deployment the student needs only vision + proprioception — **no tactile
+   hardware**.
 
-## Research Focus
+On three contact-rich tasks (egg, waffles, marmalade jar) HapticVLA reaches
+**86.7 %** mean success over 20 trials per task, outperforming the SmolVLA,
+X-VLA, and VLA-0 baselines — including variants that receive live tactile
+input at inference.
 
-### 1. Haptic-Aware Policy Learning
+## Repository layout
 
-During teleoperation and training, the robot collects haptic data alongside vision:
-- Force/pressure sensing in grippers
-- Contact detection and slip signals
-- Grasp confirmation feedback
+| Path | Purpose |
+|------|---------|
+| `src/lerobot/robots/crab/` | Crab robot implementation — bimanual host/client, tactile sensor driver, config. |
+| `examples/crab/` | Teleoperation, recording, replay, and inference (sync / async / RTC / X-VLA). |
+| `training/` | SA-RWFM teacher, tactile distillation, IL baselines, X-VLA baseline. See `training/README.md`. |
+| `docs/paper/` | Paper-facing docs: hardware, reproduction steps, HF weight pointers. |
 
-The policy learns implicit haptic priors — grip strength modulation, contact-aware placement, slip recovery — that transfer to deployment even when haptic sensors are degraded or absent.
-
-### 2. RL Fine-Tuning on Haptic Rewards
-
-SmolVLA provides the base visuomotor policy. We fine-tune with reinforcement learning using haptic-derived reward signals:
-- Grasp stability rewards from force feedback
-- Placement precision from contact sensing
-- Manipulation success from tactile confirmation
-
-This closes the loop between touch and learned behavior without requiring haptic input at inference time.
-
-### 3. Agentic Task Execution
-
-A VLM-based agent layer handles task decomposition and monitoring:
-- Scene understanding and step planning
-- Action validation before execution
-- Success verification and recovery
-
-This gives the system multi-step task capability while the VLA handles low-level control.
-
----
-
-## Architecture
-
-```
-                        "Stack the cups"
-                              |
-                              v
-                    +---------+----------+
-                    |   Agent (VLM)      |
-                    |   Task planning    |
-                    |   Verification     |
-                    +---------+----------+
-                              |
-                              v
-                    +---------+----------+
-                    |   SmolVLA Policy   |
-                    |   Haptic-trained   |
-                    |   30 Hz control    |
-                    +---------+----------+
-                              |
-                    +---------+----------+
-                    |   Crab Hardware    |
-                    |   2x arms + haptic |
-                    |   3x cameras       |
-                    +--------------------+
-```
-
----
+Everything outside `src/lerobot/robots/crab/`, `examples/crab/`, `training/`,
+and `docs/paper/` is unmodified LeRobot (LeRobot follows Apache-2.0, so the
+fork stays in sync with upstream for shared components such as SmolVLA).
 
 ## Hardware
 
-| Component | Spec | Cost |
-|-----------|------|------|
-| Compute | Jetson Orin NX 16GB | ~$500 |
-| Arms | 2x SO-101 (6 DOF each) | ~$200 |
-| Grippers | With haptic sensors | ~$50 |
-| Cameras | 3x RGB (wrist + overhead) | ~$50 |
-| **Total** | | **~$800** |
+- Two SO-101 manipulators. The left arm is stock; the right arm has a
+  12 V servo variant and a parallel gripper with a 2×100-taxel tactile
+  array (120 Hz, 1–9 N per taxel).
+- Three RGB streams: Intel RealSense D435 overhead + two IMX335 5 MP wrist
+  cameras, all at 640×480.
+- Compute: NVIDIA Jetson Orin NX 16 GB (inference).
+- Training: a single RTX 4090 (24 GB) for SA-RWFM, a single H100 for
+  tactile distillation.
 
----
+Full hardware breakdown in [`docs/paper/HARDWARE.md`](docs/paper/HARDWARE.md).
 
-## Project Structure
+## Pretrained weights
 
+Released on the Hugging Face Hub under
+[`armteam/`](https://huggingface.co/armteam):
+
+| Model | Purpose | Paper name |
+|-------|---------|------------|
+| [`armteam/crab-smolvla-left-arm`](https://huggingface.co/armteam/crab-smolvla-left-arm)       | Left-arm IL baseline, no tactile | left-arm multitask 12V v4 |
+| [`armteam/crab-smolvla-right-arm`](https://huggingface.co/armteam/crab-smolvla-right-arm)     | Right-arm IL baseline, no tactile | right-arm multitask 12V v4 |
+| [`armteam/crab-smolvla-rwfm`](https://huggingface.co/armteam/crab-smolvla-rwfm)               | SA-RWFM teacher with tactile encoder | right-arm RWFM v3 |
+| [`armteam/crab-smolvla-hapticsvla`](https://huggingface.co/armteam/crab-smolvla-hapticsvla)   | Tactile-distilled student (HapticVLA) | distill RWFM v3 |
+
+See [`docs/paper/WEIGHTS.md`](docs/paper/WEIGHTS.md) for download and
+deployment snippets.
+
+## Reproducing the paper
+
+End-to-end walkthrough (data preparation → SA-RWFM teacher → distillation →
+inference → evaluation) in
+[`docs/paper/REPRODUCING.md`](docs/paper/REPRODUCING.md).
+
+Quick start on already-released weights:
+
+```bash
+# On the Jetson Orin, using the one-command launcher:
+./examples/crab/launch_crab.sh distill         # HapticVLA (student)
+./examples/crab/launch_crab.sh rwfm_v3         # SA-RWFM teacher (needs tactile)
+./examples/crab/launch_crab.sh v4              # plain SmolVLA IL baseline
+./examples/crab/launch_crab.sh --list          # list all wired-in models
 ```
-examples/crab/          # Teleoperation, recording, inference scripts
-src/lerobot/robots/crab/        # Robot implementation & config
-src/lerobot/robots/mobile_base/ # Mobile base support
-src/lerobot/motors/feetech_smart_data/  # Motor control & haptic data
-src/lerobot/teleoperators/gamepad/      # Gamepad teleoperation
+
+## Installation
+
+Follow the upstream LeRobot install (Python 3.10+, the distribution-specific
+`requirements-*.txt`, and the `lerobot` extras relevant to your hardware).
+Additional training dependencies are `pyarrow`, `pyyaml`, `av`, and
+`torchvision`.
+
+```bash
+pip install -e .
 ```
-
----
-
-## Project Status
-
-- [x] Hardware platform (Crab bimanual robot)
-- [x] SmolVLA integration & edge deployment
-- [x] Teleoperation with haptic data collection
-- [ ] Haptic-conditioned policy training
-- [ ] RL fine-tuning with haptic rewards
-- [ ] Haptic-to-vision transfer evaluation
-- [ ] Agentic task execution layer
-
----
-
-## Why "Crab"?
-
-Two arms. Grippers. Moves sideways sometimes.
-
----
-
-## Acknowledgments
-
-- [LeRobot](https://github.com/huggingface/lerobot) — VLA training and robot control framework
-- [SmolVLA](https://huggingface.co/lerobot/smolvla_450m) — Base visuomotor policy
-- [Qwen-VL](https://github.com/QwenLM/Qwen-VL) — Vision-language model for agent layer
-
----
 
 ## Citation
 
 ```bibtex
-@software{crab,
-  title = {Crab: A Bimanual Robot Platform for Haptic-Aware Manipulation Research},
-  author = {Advanced Robotic Manipulation},
-  year = {2025},
-  url = {https://github.com/Advanced-Robotic-Manipulation/crab}
+@inproceedings{hapticvla2026,
+  title     = {HapticVLA: Contact-Rich Manipulation via Vision-Language-Action
+               Model without Inference-Time Tactile Sensing},
+  author    = {Gubernatorov, Konstantin and Sannikov, Mikhail and
+               Mikhalchuk, Ilya and Fernando, Marcelino and Kuznetsov, Egor
+               and Ogunwoye, Faith Ouwatobi and Asanov, Artem and
+               Artemov, Makar and Guo, Ziang and Tsetserukou, Dzmitry},
+  booktitle = {IROS},
+  year      = {2026}
 }
 ```
 
----
+## Acknowledgments
+
+- [LeRobot](https://github.com/huggingface/lerobot) — VLA training and
+  robot-control framework.
+- [SmolVLA](https://huggingface.co/lerobot/smolvla_450m) — base visuomotor
+  policy.
 
 ## License
 
-Apache 2.0 (following LeRobot)
+Apache 2.0 (inherited from LeRobot).
