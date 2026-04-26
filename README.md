@@ -54,12 +54,7 @@ pip install pyserial
 ```bash
 udevadm info --name=/dev/video0 --attribute-walk | grep -E "idVendor|idProduct|serial"
 ```
-
-在 `/etc/udev/rules.d/99-cameras.rules` 中添加：
-```
-SUBSYSTEM=="video4linux", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SN_WRIST>",  SYMLINK+="video_wrist"
-SUBSYSTEM=="video4linux", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SN_GROUND>", SYMLINK+="video_ground"
-```
+ls -l /dev/video*
 
 ### 2.2 CAN 总线（机械臂）
 
@@ -67,42 +62,72 @@ SUBSYSTEM=="video4linux", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", A
 # 确认 CAN 网卡是否识别
 ip link show | grep can
 
-# 激活（每次重启后需执行）
-bash can_up.sh
+# 激活接口（每次重启后需执行）
+# 8chips 触觉
+bash interface_up.sh 8chips
+# 4chips 触觉
+bash interface_up.sh 4chips
 ```
 
 ### 2.3 触觉传感器符号链接
 
 查找串口设备属性：
 ```bash
-ls /dev/ttyUSB* /dev/ttyACM*
+ls /dev/ttyUSB* 
 udevadm info --name=/dev/ttyUSB0 --attribute-walk | grep -E "idVendor|idProduct|serial"
 ```
 
-在 `/etc/udev/rules.d/99-tactile.rules` 中添加（根据实际 VID/PID/serial 填写）：
+若 `lsusb` 能看到 CH340（`1a86:7523`）但没有 `/dev/ttyUSB*`，可先手动绑定：
+```bash
+# 快速修复（含 "设备或资源忙" 场景）
+lsusb | grep -i 1a86:7523
+
+sudo systemctl stop ModemManager brltty brltty-udev.service 2>/dev/null || true
+sudo pkill brltty 2>/dev/null || true
+
+IFACE=$(for n in /sys/bus/usb/devices/*; do
+  [ -f "$n/idVendor" ] || continue
+  [ "$(cat "$n/idVendor" 2>/dev/null):$(cat "$n/idProduct" 2>/dev/null)" = "1a86:7523" ] || continue
+  for i in "$n":*; do
+    [ -d "$i" ] || continue
+    basename "$i"
+    break
+  done
+done | head -n1)
+
+echo "IFACE=$IFACE"
+
+# 若当前被 usbfs 占用，先解绑
+if [ -L "/sys/bus/usb/devices/$IFACE/driver" ]; then
+  CUR=$(basename "$(readlink -f "/sys/bus/usb/devices/$IFACE/driver")")
+  [ "$CUR" = "usbfs" ] && echo "$IFACE" | sudo tee /sys/bus/usb/drivers/usbfs/unbind
+fi
+
+# 绑定到 ch341
+echo "$IFACE" | sudo tee /sys/bus/usb/drivers/ch341/bind
+
+# 触发 udev 并验证
+bash interface_up.sh 8chips
+ls -l /dev/ttyUSB* 
+ls -l /dev/tactile_8chips
+```
+
+在 `/etc/udev/rules.d/99-tactile.rules` 中添加（根据实际 VID/PID/serial 填写）。
+
+```bash
+sudo nano /etc/udev/rules.d/99-tactile.rules
+sudo cat /etc/udev/rules.d/99-tactile.rules
 ```
 # crab 型（CP2102N，双 10x10，单串口）
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="<SN>", SYMLINK+="tactile_sensor"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="<SN>", SYMLINK+="tactile_sensor", TAG+="uaccess"
 
 # 8chips 型（单串口）
-SUBSYSTEM==" tty", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SN>", SYMLINK+="tactile_8chips"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SN>", SYMLINK+="tactile_8chips", TAG+="uaccess"
 
 # 4chips 型（双串口，用 serial number 区分左右）
-SUBSYSTEM=="tty", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SN_LEFT>",  SYMLINK+="tactile_4chips_left"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SN_RIGHT>", SYMLINK+="tactile_4chips_right"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SN_LEFT>",  SYMLINK+="tactile_4chips_left", TAG+="uaccess"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SN_RIGHT>", SYMLINK+="tactile_4chips_right", TAG+="uaccess"
 ```
-
-将当前用户加入 `dialout` 组（避免每次 sudo，重新登录后生效）：
-```bash
-sudo usermod -aG dialout $USER
-```
-
-验证符号链接：
-```bash
-ls -l /dev/video_* /dev/tactile_*
-```
-
----
 
 ## 3. 测试外设
 
@@ -111,16 +136,18 @@ ls -l /dev/video_* /dev/tactile_*
 > 注意：两个相机不能从同一个扩展坞连接电脑，否则可能读取出问题
 
 ```bash
-sudo apt install guvcview
+conda activate crab
+sudo apt uninstall guvcview
 guvcview --device=/dev/video_wrist   # 测试 wrist 相机
-guvcview --device=/dev/video_ground  # 测试 ground 相机
+guvcview --device=/dev/video_ground0  # 测试 ground 相机
 ```
 
-### 3.2 连接机械臂
+### 3.2 连接机械臂与触觉传感器
 
 ```bash
-conda activate crab
-bash can_up.sh
+bash interface_up.sh 8chips
+# 或
+bash interface_up.sh 4chips
 ```
 
 ### 3.3 测试触觉传感器
@@ -128,21 +155,13 @@ bash can_up.sh
 串口接好并配置 udev 规则后，用可视化工具验证帧率、左右映射及丢帧情况：
 
 ```bash
-conda activate crab
-
-# crab 型（默认 /dev/tactile_sensor，921600 baud）
-python -m src.lerobot.tactile_sensors.tactile_grid_viz --sensor-type crab
-
 # 8chips 型（默认 /dev/tactile_8chips，2000000 baud）
-python -m src.lerobot.tactile_sensors.tactile_grid_viz --sensor-type 8chips
+python -m src.lerobot.tactile_sensors.tactile_heatmap
+
 
 # 4chips 型（默认 /dev/tactile_4chips_left + /dev/tactile_4chips_right，115200 baud）
 python -m src.lerobot.tactile_sensors.tactile_grid_viz --sensor-type 4chips
 
-# 覆盖默认端口（可选）
-python -m src.lerobot.tactile_sensors.tactile_grid_viz \
-    --sensor-type crab \
-    --port /dev/ttyUSB0
 ```
 
 ---
