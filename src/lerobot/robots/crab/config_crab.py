@@ -16,9 +16,9 @@ from dataclasses import dataclass, field, fields
 
 from lerobot.cameras import CameraConfig
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
+from lerobot.tactile_sensors import TactileConfig, TactileSensorConfig
 
 from ..config import RobotConfig
-from .tactile_sensor import TactileSensorConfig
 from ..mobile_base.config_mobile_base import MobileBaseSettings, MobileBaseClientSettings
 
 
@@ -53,7 +53,7 @@ class CrabConfig(RobotConfig):
     
     # Tactile sensor (replaces old haptic sensor)
     tactile_enabled: bool = True
-    tactile: TactileSensorConfig = field(default_factory=TactileSensorConfig)
+    tactile: TactileConfig = field(default_factory=TactileSensorConfig)
     
     mobile_base: MobileBaseSettings = field(default_factory=MobileBaseSettings)
 

@@ -15,4 +15,3 @@
 from .config_crab import CrabClientConfig, CrabConfig, CrabHostConfig
 from .crab import Crab
 from .crab_client import CrabClient
-from .tactile_sensor import TactileSensor, TactileSensorConfig

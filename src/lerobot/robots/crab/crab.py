@@ -21,6 +21,7 @@ from typing import Any
 
 from lerobot.cameras.utils import make_cameras_from_configs
 from lerobot.robots.so101_follower import SO101Follower, SO101FollowerConfig
+from lerobot.tactile_sensors import make_tactile_sensor_from_config
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
 from ..robot import Robot
@@ -28,7 +29,6 @@ from ..utils import ensure_safe_goal_position
 from ..mobile_base.mobile_base import MobileBase
 from ..mobile_base.config_mobile_base import MobileBaseConfig
 from .config_crab import CrabConfig
-from .tactile_sensor import TactileSensor
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ class Crab(Robot):
         
         # Tactile sensor (replaces old haptic sensor)
         self.tactile_enabled = config.tactile_enabled
-        self.tactile_sensor: TactileSensor | None = TactileSensor(config.tactile) if self.tactile_enabled else None
+        self.tactile_sensor = make_tactile_sensor_from_config(config.tactile) if self.tactile_enabled else None
 
         # Construct MobileBaseConfig from settings, preserving nested dataclasses
         mb_settings_dict = {f.name: getattr(config.mobile_base, f.name) for f in fields(config.mobile_base)}
@@ -133,7 +133,7 @@ class Crab(Robot):
     @property
     def _tactile_ft(self) -> dict[str, type | tuple]:
         """Feature types for tactile sensor data."""
-        return TactileSensor.get_feature_types() if self.tactile_enabled else {}
+        return self.tactile_sensor.get_feature_types() if self.tactile_enabled and self.tactile_sensor else {}
 
     @cached_property
     def observation_features(self) -> dict[str, type | tuple]:
