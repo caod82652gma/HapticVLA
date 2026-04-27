@@ -23,7 +23,7 @@
   - 每侧输出: (4, 6, 8) float32，即 4 芯片 × 6 行 × 8 列（保留完整帧）
 
 帧格式 (每行一帧):
-  AA 55 | row_id(0-5) | 8×8×2 bytes payload (little-endian uint16) | XOR checksum
+    FF 66 | row_id(0-5) | 8×8×2 bytes payload (little-endian int16) | XOR checksum
   payload 大小 = 8 chips × 8 channels × 2 bytes = 128 bytes
 
 通道说明:
@@ -75,8 +75,9 @@ class Tactile8ChipConfig(TactileConfig):
     port: str = "/dev/tactile_8chips"
     baudrate: int = 2000000
     timeout: float = 0.1
-    header1: int = 0xAA
-    header2: int = 0x55
+    # 与 tactile_heatmap 保持一致的固件协议头
+    header1: int = 0xFF
+    header2: int = 0x66
     row_count: int = 6
     chips_total: int = 8
     chips_per_side: int = 4
@@ -101,7 +102,7 @@ class Tactile8ChipSensor:
         # payload = chips_total * channels_per_chip * 2 = 8*8*2 = 128 bytes per row
         self.row_width_total = config.chips_total * config.channels_per_chip
         self.frame_size = 2 + 1 + self.row_width_total * 2 + 1
-        self._combined_matrix = np.zeros((config.row_count, self.row_width_total), dtype=np.uint16)
+        self._combined_matrix = np.zeros((config.row_count, self.row_width_total), dtype=np.float32)
         self._rows_seen: set[int] = set()
         # Processed results stored as (4, 6, 8) float32: (chip, row, channel)
         self._left_matrix = np.zeros((config.chips_per_side, config.row_count, config.channels_per_chip), dtype=np.float32)
@@ -160,11 +161,12 @@ class Tactile8ChipSensor:
         if _xor_checksum(payload) != checksum:
             raise ValueError(f"Checksum mismatch on row {row_id}")
 
-        row = np.frombuffer(payload, dtype="<u2").astype(np.uint16).copy()
+        # 与 tactile_heatmap 对齐：payload 是 little-endian int16 原始 ADC 值。
+        row = np.frombuffer(payload, dtype="<i2").astype(np.float32).copy()
         return row_id, row
 
     def _split_sides(self, combined: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Convert raw (6, 64) uint16 → two oriented (4, 6, 8) float32 arrays.
+        """Convert raw (6, 64) int16/float32 → two oriented (4, 6, 8) float32 arrays.
 
         Steps:
           reshape(6, 8, 8)       → (scan_row, chip, channel)

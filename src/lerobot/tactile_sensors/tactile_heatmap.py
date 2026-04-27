@@ -148,7 +148,7 @@ def resolve_mode(mode: str) -> str:
 
 def main():
     p = argparse.ArgumentParser(description="6x8 tactile heatmap (FF 66 protocol, 8 AD chips)")
-    p.add_argument("--port", default="/dev/tactile_sensor")
+    p.add_argument("--port", default="/dev/tactile_8chips")
     p.add_argument("--baudrate", type=int, default=2_000_000)
     p.add_argument("--timeout", type=float, default=0.05)
     p.add_argument("--mode", choices=["auto", "live", "snapshot"], default="auto")

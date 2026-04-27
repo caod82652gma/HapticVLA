@@ -328,6 +328,21 @@ class Crab(Robot):
 
         return telemetry
 
+    def _build_zero_tactile_observation(self) -> dict[str, np.ndarray]:
+        """Build tactile fallback values matching the current tactile feature schema."""
+        tactile_ft = self._tactile_ft
+        if not tactile_ft:
+            return {
+                "tactile_left": np.zeros((4, 6, 8), dtype=np.float32),
+                "tactile_right": np.zeros((4, 6, 8), dtype=np.float32),
+            }
+
+        zero_obs = {}
+        for key, shape in tactile_ft.items():
+            if isinstance(shape, tuple):
+                zero_obs[key] = np.zeros(shape, dtype=np.float32)
+        return zero_obs
+
     def get_observation(self) -> dict[str, Any]:
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
@@ -361,15 +376,9 @@ class Crab(Robot):
                 obs_dict.update(self.tactile_sensor.get_observation())
             except Exception as e:
                 logger.warning(f"Failed to get tactile observation: {e}")
-                obs_dict["tactile_left"] = np.zeros((10, 10), dtype=np.uint16)
-                obs_dict["tactile_right"] = np.zeros((10, 10), dtype=np.uint16)
-                obs_dict["tactile_left.sum"] = 0.0
-                obs_dict["tactile_right.sum"] = 0.0
+                obs_dict.update(self._build_zero_tactile_observation())
         else:
-            obs_dict["tactile_left"] = np.zeros((10, 10), dtype=np.uint16)
-            obs_dict["tactile_right"] = np.zeros((10, 10), dtype=np.uint16)
-            obs_dict["tactile_left.sum"] = 0.0
-            obs_dict["tactile_right.sum"] = 0.0
+            obs_dict.update(self._build_zero_tactile_observation())
 
         # Motor telemetry (current, temperature, voltage, load)
         if self._motor_telemetry_enabled:

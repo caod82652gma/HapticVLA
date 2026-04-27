@@ -165,7 +165,7 @@ lerobot-record \
   --teleop.id=my_leader_arm \
   --display_data=true \
   --robot.tactile_enabled=true \
-  --robot.tactile.type=8chips \   
+  --robot.tactile.type=8chips \
   --dataset.reset_time_s=5 \
   --dataset.episode_time_s=60 \
   --dataset.num_episodes=20 \

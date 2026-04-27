@@ -29,7 +29,7 @@ by roboninecom, with the tactile sensor array mounted on the fingertips.
 - 10×10 taxels per electrode → **200 taxels total**.
 - Per-taxel force range: 1–9 N.
 - Sampling rate: 120 Hz.
-- Driver: `src/lerobot/robots/crab/tactile_sensor.py`.
+- Driver: `src/lerobot/tactile_sensors/tactile_8chips.py`.
 
 <p align="center">
   <img src="../../media/paper/tactile_sensor.jpg" width="300" alt="Tactile array">

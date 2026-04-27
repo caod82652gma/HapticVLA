@@ -91,15 +91,15 @@ class CrabClient(Robot):
         }
 
     @cached_property
-    def _haptic_ft(self) -> dict[str, type]:
+    def _tactile_ft(self) -> dict[str, tuple]:
         return {
-            'haptic_sensor1.force': float,
-            'haptic_sensor2.force': float,
+            "tactile_left": (4, 6, 8),
+            "tactile_right": (4, 6, 8),
         }
 
     @cached_property
     def observation_features(self) -> dict[str, type | tuple]:
-        return {**self._motors_ft, **self._cameras_ft, **self._haptic_ft}
+        return {**self._motors_ft, **self._cameras_ft, **self._tactile_ft}
 
     @cached_property
     def action_features(self) -> dict[str, type]:
@@ -184,6 +184,36 @@ class CrabClient(Robot):
                 np_arr = np.frombuffer(jpg_data, dtype=np.uint8)
                 frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
                 obs_dict[cam_name] = frame
+
+            # Decode tactile matrices from base64.
+            # Preferred wire format is float32 (host), but we also support legacy uint16.
+            for tactile_key, tactile_shape in self._tactile_ft.items():
+                tactile_b64 = observation.get(tactile_key, "")
+                if not tactile_b64:
+                    obs_dict[tactile_key] = np.zeros(tactile_shape, dtype=np.float32)
+                    continue
+
+                raw = base64.b64decode(tactile_b64)
+                expected_size = int(np.prod(tactile_shape))
+
+                arr_f32 = np.frombuffer(raw, dtype=np.float32)
+                if arr_f32.size == expected_size:
+                    obs_dict[tactile_key] = arr_f32.reshape(tactile_shape)
+                    continue
+
+                arr_u16 = np.frombuffer(raw, dtype=np.uint16)
+                if arr_u16.size == expected_size:
+                    obs_dict[tactile_key] = arr_u16.astype(np.float32).reshape(tactile_shape)
+                    continue
+
+                logging.warning(
+                    "Unexpected tactile payload size for %s: got %d float32 / %d uint16 elements, expected %d",
+                    tactile_key,
+                    arr_f32.size,
+                    arr_u16.size,
+                    expected_size,
+                )
+                obs_dict[tactile_key] = np.zeros(tactile_shape, dtype=np.float32)
             return obs_dict
         except (json.JSONDecodeError, TypeError, ValueError) as e:
             logging.error(f"Error processing observation: {e}")
@@ -205,9 +235,9 @@ class CrabClient(Robot):
             if self.last_remote_state.get(cam_name) is None:
                 self.last_remote_state[cam_name] = np.zeros(cam_shape, dtype=np.uint8)
 
-        for haptic_key in self._haptic_ft:
-            if haptic_key not in self.last_remote_state:
-                self.last_remote_state[haptic_key] = 0.0
+        for tactile_key, tactile_shape in self._tactile_ft.items():
+            if tactile_key not in self.last_remote_state:
+                self.last_remote_state[tactile_key] = np.zeros(tactile_shape, dtype=np.float32)
 
         return self.last_remote_state.copy()
 

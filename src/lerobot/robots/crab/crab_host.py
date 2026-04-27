@@ -108,8 +108,8 @@ def main(cfg: CrabServerConfig):
             for tactile_key in ["tactile_left", "tactile_right"]:
                 matrix = obs.get(tactile_key)
                 if matrix is not None and isinstance(matrix, np.ndarray):
-                    # Convert to uint16 bytes and base64 encode
-                    obs[tactile_key] = base64.b64encode(matrix.astype(np.uint16).tobytes()).decode("utf-8")
+                    # Keep float32 to match dataset tactile schema and client decode path.
+                    obs[tactile_key] = base64.b64encode(matrix.astype(np.float32).tobytes()).decode("utf-8")
                 else:
                     obs[tactile_key] = ""
 
