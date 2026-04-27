@@ -108,7 +108,7 @@ def aggregate_pipeline_dataset_features(
             # Observations are classified as images if their key matches image-related tokens or if the shape of the feature is 3.
             # All other observations are treated as state.
             is_image = not is_action and (
-                (isinstance(value, tuple) and len(value) == 3)
+                (isinstance(value, tuple) and len(value) == 3 and not key.startswith("tactile_"))
                 or (
                     key.startswith(f"{OBS_IMAGES}.")
                     or key.startswith(f"{images_token}.")

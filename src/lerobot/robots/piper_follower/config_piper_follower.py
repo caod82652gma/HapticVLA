@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 
 from lerobot.cameras import CameraConfig
 from lerobot.cameras.opencv import OpenCVCameraConfig
-from lerobot.tactile_sensors import TactileConfig, TactileSensorConfig
+from lerobot.tactile_sensors import TactileConfig, Tactile8ChipConfig
 
 from ..config import RobotConfig
 
@@ -49,4 +49,4 @@ class PIPERFollowerConfig(RobotConfig):
 
     # Optional tactile sensor chain.
     tactile_enabled: bool = False
-    tactile: TactileConfig = field(default_factory=TactileSensorConfig)
+    tactile: TactileConfig = field(default_factory=Tactile8ChipConfig)
