@@ -18,16 +18,17 @@
 硬件规格:
   - 每侧 4 片 AD7606（8 通道 ADC），共 2 路串口
   - 波特率: 115200
-  - 每侧输出: (4, 4, 6) float32，即 4 芯片 × 4 行 × 6 列
+  - 每侧输出: (4, 6, 8) float32，即 4 芯片 × 6 行 × 8 列（保留完整帧）
 
 帧格式 (每行一帧):
   AA 55 | row_id(0-5) | 4×8×2 bytes payload (little-endian uint16) | XOR checksum
   payload 大小 = 4 chips × 8 channels × 2 bytes = 64 bytes
 
 通道说明:
-  - ch0-5: 触觉列（固件已做翻转，flip_cols=True 可还原物理顺序）
-  - ch6-7: 未使用
-  - row 0-3: 物理传感器有效行；row 4-5: 无传感器（舍弃）
+  - 每片 AD7606 输出 6 行 × 8 列原始数据，完整保留
+  - ch0-5: 触觉有效列（固件已做翻转，flip_cols=True 可还原物理顺序）
+  - ch6-7: 未接传感器（原始值保留，训练时可按需 slice 丢弃）
+  - row 0-3: 物理传感器有效行；row 4-5: 未接传感器（原始值保留）
 """
 
 import logging
@@ -42,11 +43,6 @@ import serial
 from .tactile_sensor import TactileConfig
 
 logger = logging.getLogger(__name__)
-
-# AD7606 sends 8 ADC channels per chip per scan line; ch0-5 are tactile, ch6-7 unused.
-_ACTIVE_COLS = 6
-# Firmware scans row_count=6 lines per frame; physical sensors occupy only the first 4.
-_ACTIVE_ROWS = 4
 
 
 def _xor_checksum(data: bytes) -> int:
@@ -155,7 +151,7 @@ class Tactile4ChipSensor:
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
-        # Store raw (row_count, chips*channels) matrices; conversion to (4,4,6) is lazy in get_observation().
+        # Store raw (row_count, chips*channels) matrices; conversion to (4,6,8) is lazy in get_observation().
         row_width = config.chips_per_side * config.channels_per_chip
         self._left_matrix = np.zeros((config.row_count, row_width), dtype=np.uint16)
         self._right_matrix = np.zeros((config.row_count, row_width), dtype=np.uint16)
@@ -206,16 +202,14 @@ class Tactile4ChipSensor:
 
     @staticmethod
     def _to_tactile(matrix: np.ndarray, *, flip_rows: bool, flip_cols: bool) -> np.ndarray:
-        """Convert raw (6, 32) uint16 → oriented (4, 4, 6) float32.
+        """Convert raw (6, 32) uint16 → oriented (4, 6, 8) float32.
 
         Steps:
-          reshape(6, 4, 8)           → (scan_row, chip, channel)
-          [:_ACTIVE_ROWS, :, :_ACTIVE_COLS]  → (4, 4, 6) as (row, chip, col)
-          transpose(1, 0, 2)         → (chip, row, col) = (4, 4, 6)
-          flip_rows / flip_cols      → spatial orientation correction
+          reshape(6, 4, 8)    → (scan_row, chip, channel)
+          transpose(1, 0, 2)  → (chip, row, channel) = (4, 6, 8)
+          flip_rows / flip_cols → spatial orientation correction
         """
-        m = matrix.reshape(6, 4, 8)[:_ACTIVE_ROWS, :, :_ACTIVE_COLS]  # (4, 4, 6): row,chip,col
-        m = m.transpose(1, 0, 2).astype(np.float32)                    # (4, 4, 6): chip,row,col
+        m = matrix.reshape(6, 4, 8).transpose(1, 0, 2).astype(np.float32)  # (4, 6, 8): chip,row,channel
         if flip_rows:
             m = m[:, ::-1, :]
         if flip_cols:
@@ -240,6 +234,6 @@ class Tactile4ChipSensor:
     @staticmethod
     def get_feature_types() -> dict:
         return {
-            "tactile_left": (_ACTIVE_ROWS, 4, _ACTIVE_COLS),   # (4, 4, 6): chip, row, col
-            "tactile_right": (_ACTIVE_ROWS, 4, _ACTIVE_COLS),
+            "tactile_left": (4, 6, 8),   # (chip, row, channel)
+            "tactile_right": (4, 6, 8),
         }
