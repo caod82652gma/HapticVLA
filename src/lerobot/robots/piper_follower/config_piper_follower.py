@@ -33,15 +33,15 @@ class PIPERFollowerConfig(RobotConfig):
             "wrist_camera": OpenCVCameraConfig(
                 index_or_path="/dev/video_wrist",
                 fps=30,
-                width=480,
-                height=640,
+                width=640,
+                height=480,
                 rotation=-90,
             ),
             "main_camera": OpenCVCameraConfig(
                 index_or_path="/dev/video_ground0",
                 fps=30,
-                width=480,
-                height=640,
+                width=640,
+                height=480,
                 rotation=90,
             ),
         }
