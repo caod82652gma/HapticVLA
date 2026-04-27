@@ -96,7 +96,10 @@ class PIPERFollower(Robot):
 
     @property
     def _tactile_ft(self) -> dict[str, type | tuple]:
-        return self.tactile_sensor.get_feature_types() if self.tactile_enabled and self.tactile_sensor else {}
+        if not (self.tactile_enabled and self.tactile_sensor):
+            return {}
+        return {k: v for k, v in self.tactile_sensor.get_feature_types().items()
+                if not k.endswith(".sum")}
 
     @cached_property
     def action_features(self) -> dict[str, type]:

@@ -39,7 +39,7 @@ class Tactile8ChipConfig(TactileConfig):
     row_count: int = 6
     chips_total: int = 8
     chips_per_side: int = 4
-    channels_per_chip: int = 8
+    channels_per_chip: int = 6
     max_force_sum: float = 150000.0
     flip_left_rows: bool = False
     flip_left_cols: bool = False
@@ -130,18 +130,19 @@ class Tactile8ChipSensor:
         return matrix
 
     def _split_sides(self, combined: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        left = combined[:, : self.side_width]
-        right = combined[:, self.side_width : self.side_width * 2]
-        left = self._apply_orientation(
-            left,
-            flip_rows=self.config.flip_left_rows,
-            flip_cols=self.config.flip_left_cols,
-        )
-        right = self._apply_orientation(
-            right,
-            flip_rows=self.config.flip_right_rows,
-            flip_cols=self.config.flip_right_cols,
-        )
+        # combined shape: (6, 48), 8 芯片按 AD1→AD8 顺序各占 6 列
+        # 左侧 = AD1,2,5,6 (chip idx 0,1,4,5) → cols 0-11, 24-35
+        # 右侧 = AD3,4,7,8 (chip idx 2,3,6,7) → cols 12-23, 36-47
+        c = self.config.channels_per_chip  # 6
+        left_raw  = np.concatenate([combined[:, 0:2*c],    combined[:, 4*c:6*c]], axis=1)  # (6,24)
+        right_raw = np.concatenate([combined[:, 2*c:4*c],  combined[:, 6*c:8*c]], axis=1)  # (6,24)
+
+        left_raw  = self._apply_orientation(left_raw,  flip_rows=self.config.flip_left_rows,  flip_cols=self.config.flip_left_cols)
+        right_raw = self._apply_orientation(right_raw, flip_rows=self.config.flip_right_rows, flip_cols=self.config.flip_right_cols)
+
+        # (6, 24) -> (4, 6, 6)
+        left  = left_raw.reshape(6, 4, c).transpose(1, 0, 2).astype(np.float32)
+        right = right_raw.reshape(6, 4, c).transpose(1, 0, 2).astype(np.float32)
         return left, right
 
     def _read_loop(self) -> None:
@@ -169,20 +170,15 @@ class Tactile8ChipSensor:
 
     def get_observation(self) -> dict:
         left, right = self.get_matrices()
-        left_sum = min(float(np.sum(left)) / self.config.max_force_sum, 1.0)
-        right_sum = min(float(np.sum(right)) / self.config.max_force_sum, 1.0)
+        # _split_sides 已完成 reshape 和 float32 转换，直接返回
         return {
             "tactile_left": left,
             "tactile_right": right,
-            "tactile_left.sum": left_sum,
-            "tactile_right.sum": right_sum,
         }
 
     @staticmethod
     def get_feature_types() -> dict:
         return {
-            "tactile_left": (6, 32),
-            "tactile_right": (6, 32),
-            "tactile_left.sum": float,
-            "tactile_right.sum": float,
+            "tactile_left": (4, 6, 6),
+            "tactile_right": (4, 6, 6),
         }

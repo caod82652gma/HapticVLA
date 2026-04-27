@@ -39,7 +39,7 @@ class Tactile4ChipConfig(TactileConfig):
     header2: int = 0x55
     row_count: int = 6
     chips_per_side: int = 4
-    channels_per_chip: int = 8
+    channels_per_chip: int = 6
     max_force_sum: float = 150000.0
     flip_left_rows: bool = False
     flip_left_cols: bool = False
@@ -187,20 +187,17 @@ class Tactile4ChipSensor:
 
     def get_observation(self) -> dict:
         left, right = self.get_matrices()
-        left_sum = min(float(np.sum(left)) / self.config.max_force_sum, 1.0)
-        right_sum = min(float(np.sum(right)) / self.config.max_force_sum, 1.0)
+        # (6, 24) -> (4, 6, 6): 每芯片 6 列，4 芯片，6 行
+        left = left.reshape(6, 4, 6).transpose(1, 0, 2).astype(np.float32)
+        right = right.reshape(6, 4, 6).transpose(1, 0, 2).astype(np.float32)
         return {
             "tactile_left": left,
             "tactile_right": right,
-            "tactile_left.sum": left_sum,
-            "tactile_right.sum": right_sum,
         }
 
     @staticmethod
     def get_feature_types() -> dict:
         return {
-            "tactile_left": (6, 32),
-            "tactile_right": (6, 32),
-            "tactile_left.sum": float,
-            "tactile_right.sum": float,
+            "tactile_left": (4, 6, 6),
+            "tactile_right": (4, 6, 6),
         }

@@ -639,7 +639,17 @@ def hw_to_dataset_features(
         for key, ftype in hw_features.items()
         if ftype is float or (isinstance(ftype, PolicyFeature) and ftype.type != FeatureType.VISUAL)
     }
-    cam_fts = {key: shape for key, shape in hw_features.items() if isinstance(shape, tuple)}
+    # tactile 以 key 前缀区分，不走 images 路径
+    tactile_fts = {
+        key: shape
+        for key, shape in hw_features.items()
+        if isinstance(shape, tuple) and key.startswith("tactile_")
+    }
+    cam_fts = {
+        key: shape
+        for key, shape in hw_features.items()
+        if isinstance(shape, tuple) and not key.startswith("tactile_")
+    }
 
     if joint_fts and prefix == ACTION:
         features[prefix] = {
@@ -660,6 +670,13 @@ def hw_to_dataset_features(
             "dtype": "video" if use_video else "image",
             "shape": shape,
             "names": ["height", "width", "channels"],
+        }
+
+    for key, shape in tactile_fts.items():
+        features[f"{prefix}.{key}"] = {
+            "dtype": "float32",
+            "shape": shape,
+            "names": None,
         }
 
     _validate_feature_names(features)
@@ -691,6 +708,10 @@ def build_dataset_frame(
             frame[key] = np.array([values[name] for name in ft["names"]], dtype=np.float32)
         elif ft["dtype"] in ["image", "video"]:
             frame[key] = values[key.removeprefix(f"{prefix}.images.")]
+        elif ft["dtype"] == "float32" and len(ft["shape"]) > 1:
+            # 多维非图像数组（如触觉矩阵），直接按去前缀后的 key 取值
+            bare_key = key.removeprefix(f"{prefix}.")
+            frame[key] = np.asarray(values[bare_key], dtype=np.float32)
 
     return frame
 
