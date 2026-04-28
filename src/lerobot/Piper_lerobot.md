@@ -59,10 +59,14 @@ conda activate lerobot
 lerobot-teleoperate \
     --robot.type=piper_follower \
     --robot.id=my_follower_arm \
+    --robot.port=can_follower \
     --teleop.type=piper_leader \
     --teleop.id=my_leader_arm \
+    --teleop.port=can_master \
     --display_data=true
 ```
+
+> 使用第二组机械臂：`--robot.port=can_follower2 --teleop.port=can_master2`
 
 ---
 
@@ -92,7 +96,9 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 lerobot-record \
   --robot.type=piper_follower \
+  --robot.port=can_follower \
   --teleop.type=piper_leader \
+  --teleop.port=can_master \
   --robot.cameras='{
     "wrist": {
       "type": "opencv",
@@ -118,6 +124,8 @@ lerobot-record \
   --dataset.num_episodes=20 \
   --dataset.single_task="Pick up the banana and put it into the basket."
 ```
+
+> 使用第二组机械臂：`--robot.port=can_follower2 --teleop.port=can_master2`
 
 数据保存在：`~/.cache/huggingface/lerobot/FangYuxuan/record_banana`
 
@@ -195,6 +203,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 lerobot-record \
   --robot.type=piper_follower \
+  --robot.port=can_follower \
   --robot.cameras='{
     "wrist": {
       "type": "opencv",
@@ -222,6 +231,11 @@ lerobot-record \
   --policy.path=FangYuxuan/act_pick_banana
 ```
 
+> 使用第二组机械臂：`--robot.port=can_follower2`
+
+```bash
+```
+
 ### pi05 真机推理（RTC）
 
 ```bash
@@ -231,6 +245,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 python examples/rtc/eval_with_real_robot.py \
   --policy.path=FangYuxuan/pi05_catch_banana \
   --robot.type=piper_follower \
+  --robot.port=can_follower \
   --robot.cameras='{
     "wrist": {
       "type": "opencv",
@@ -257,6 +272,11 @@ python examples/rtc/eval_with_real_robot.py \
   --device=cuda
 ```
 
+> 使用第二组机械臂：`--robot.port=can_follower2`
+
+```bash
+```
+
 ### 异步推理（本地显存不够，模型跑在 A100）
 
 安装依赖：
@@ -276,6 +296,7 @@ nc -zv 127.0.0.1 8080
 python -m src.lerobot.async_inference.robot_client \
     --server_address=127.0.0.1:8080 \
     --robot.type=piper_follower \
+    --robot.port=can_follower \
     --robot.cameras='{"wrist": {"type": "opencv", "index_or_path": "/dev/video0", "width": 480, "height": 640, "fps": 30, "rotation": -90}, "ground": {"type": "opencv", "index_or_path": "/dev/video2", "width": 480, "height": 640, "fps": 30, "rotation": 90}}' \
     --task="Pick up the banana and put it into the basket." \
     --policy_type=pi05 \
@@ -284,6 +305,11 @@ python -m src.lerobot.async_inference.robot_client \
     --actions_per_chunk=50 \
     --chunk_size_threshold=0.5 \
     --aggregate_fn_name=weighted_average
+```
+
+> 使用第二组机械臂：`--robot.port=can_follower2`
+
+```bash
 ```
 
 ---

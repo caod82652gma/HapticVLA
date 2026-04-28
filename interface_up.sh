@@ -52,10 +52,10 @@ recover_ch340() {
 }
 
 bring_up_can() {
-    for iface in can_master can_follower; do
+    for iface in can_master can_follower can_master2 can_follower2; do
         if ! ip link show "$iface" &>/dev/null; then
-            echo "Error: $iface not found. Check USB connection and udev rules."
-            exit 1
+            echo "Warn: $iface not found. Skipping..."
+            continue
         fi
         sudo ip link set "$iface" down 2>/dev/null || true
         sudo ip link set "$iface" type can bitrate "$BITRATE"

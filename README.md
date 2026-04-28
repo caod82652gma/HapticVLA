@@ -49,17 +49,43 @@ udevadm info --name=/dev/ttyUSB0 --attribute-walk | grep -E "idVendor|idProduct|
 ### 2.2 udev 规则文件
 
 ```bash
-sudo nano /etc/udev/rules.d/99-tactile.rules
+sudo nano /etc/udev/rules.d/99-video-ground1.rules
+cat /etc/udev/rules.d/99-video-ground1.rules
 ```
+**当前系统已配置的udev规则：**
+1. **99-piper-can.rules** - Piper机械臂CAN总线适配器
+   - `can_master` (序列号: 003B00495246570620323934)
+   - `can_follower` (序列号: 003C00455246570620323934)
+   - `can_master2` (序列号: 002D001E4759530920353131)
+   - `can_follower2` (序列号: 003F00214759530820353131)
+2. **99-tactile.rules** - 触觉传感器串口 (CH340, 匹配VID:PID 1a86:7523)
+   - `/dev/tactile_8chips` → 可插任意USB口
+3. **99-video-wrist.rules** - 手腕相机
+   - `/dev/video_wrist` (USB路径: pci-0000:80:14.0-usb-0:8.4.2:1.0)
+4. **99-video-ground0.rules** - 地面相机0
+   - `/dev/video_ground0` (USB路径: pci-0000:80:14.0-usb-0:13.4:1.0)
+5. **99-video-ground1.rules** - 地面相机1
+   - `/dev/video_ground1` (USB路径: pci-0000:80:14.0-usb-0:13.3:1.0)
 
-写入（根据实际 VID/PID/serial 填写）：
-```
+### 配置新设备的udev规则模板
+
+**触觉传感器（推荐用VID:PID，支持任意USB口）：**
+```bash
 # 8chips 型（单串口，2000000 baud）
-SUBSYSTEM=="tty", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SN>", SYMLINK+="tactile_8chips", TAG+="uaccess"
+SUBSYSTEM=="tty", KERNEL=="ttyUSB*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="tactile_8chips", TAG+="uaccess"
 
-# 4chips 型（双串口，用 serial number 区分左右，115200 baud）
-SUBSYSTEM=="tty", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SN_LEFT>",  SYMLINK+="tactile_4chips_left",  TAG+="uaccess"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SN_RIGHT>", SYMLINK+="tactile_4chips_right", TAG+="uaccess"
+# 如需多个CH340设备，可添加USB路径限制
+# SUBSYSTEM=="tty", KERNEL=="ttyUSB*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ENV{ID_PATH}=="pci-0000:80:14.0-usb-0:13.4.4.1:1.0", SYMLINK+="tactile_8chips", TAG+="uaccess"
+```
+
+**相机（建议用USB路径，避免设备顺序变化）：**
+```bash
+SUBSYSTEM=="video4linux", KERNEL=="video*", ENV{ID_PATH}=="<USB_PATH>", ENV{ID_V4L_CAPABILITIES}==":capture:", SYMLINK+="video_wrist"
+```
+
+**机械臂CAN（必须用序列号，区分多个相同设备）：**
+```bash
+SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="<SERIAL>", NAME="can_master"
 ```
 
 ---
@@ -74,39 +100,29 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{ser
 conda activate crab
 guvcview --device=/dev/video_wrist
 guvcview --device=/dev/video_ground0
+
+v4l2-ctl --device=/dev/video_wrist \
+  --set-fmt-video=width=640,height=480,pixelformat=YUYV
+
 ```
 
 ### 3.2 机械臂 & 触觉传感器
-触觉传感器快速修复
-```bash
-lsusb | grep -i 1a86:7523
 
-sudo systemctl stop ModemManager brltty brltty-udev.service 2>/dev/null || true
+**触觉传感器快速修复**（如果 /dev/tactile_8chips 未出现）：
+```bash
+# 停止干扰CH340的服务
+sudo systemctl stop ModemManager brltty 2>/dev/null || true
 sudo pkill brltty 2>/dev/null || true
 
-IFACE=$(for n in /sys/bus/usb/devices/*; do
-  [ -f "$n/idVendor" ] || continue
-  [ "$(cat "$n/idVendor" 2>/dev/null):$(cat "$n/idProduct" 2>/dev/null)" = "1a86:7523" ] || continue
-  for i in "$n":*; do
-    [ -d "$i" ] || continue
-    basename "$i"
-    break
-  done
-done | head -n1)
+# 重新触发udev规则
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=tty
 
-echo "IFACE=$IFACE"
-
-if [ -L "/sys/bus/usb/devices/$IFACE/driver" ]; then
-  CUR=$(basename "$(readlink -f "/sys/bus/usb/devices/$IFACE/driver")")
-  [ "$CUR" = "usbfs" ] && echo "$IFACE" | sudo tee /sys/bus/usb/drivers/usbfs/unbind
-fi
-
-echo "$IFACE" | sudo tee /sys/bus/usb/drivers/ch341/bind
-
-bash interface_up.sh 8chips
+# 验证设备
+ls -la /dev/tactile_8chips
 ```
 
-激活 CAN 接口（每次重启后执行）：
+**激活 CAN 接口**（每次重启后执行）：
 ```bash
 bash interface_up.sh 8chips   # 或 4chips
 ```
@@ -131,9 +147,17 @@ conda activate crab
 lerobot-teleoperate \
     --robot.type=piper_follower \
     --robot.id=my_follower_arm \
+    --robot.port=can_follower \
     --teleop.type=piper_leader \
     --teleop.id=my_leader_arm \
+    --teleop.port=can_master \
     --display_data=true
+```
+
+如需使用第二组机械臂，修改为：
+```bash
+    --robot.port=can_follower2 \
+    --teleop.port=can_master2 \
 ```
 
 ---
@@ -157,22 +181,27 @@ hf auth whoami
 ```bash
 conda activate crab
 export HF_ENDPOINT=https://hf-mirror.com
+bash interface_up.sh 8chips   # 或 4chips
 
 lerobot-record \
   --robot.type=piper_follower \
   --robot.id=my_follower_arm \
+  --robot.port=can_follower \
   --teleop.type=piper_leader \
   --teleop.id=my_leader_arm \
+  --teleop.port=can_master \
   --display_data=true \
   --robot.tactile_enabled=true \
   --robot.tactile.type=8chips \
   --dataset.reset_time_s=5 \
   --dataset.episode_time_s=60 \
   --dataset.num_episodes=20 \
-  --dataset.repo_id=FangYuxuan/record_test003 \
+  --dataset.repo_id=FangYuxuan/pick_place_soft_20260427_1019 \
   --dataset.push_to_hub=false \
   --dataset.single_task="Pick up the object and place it."
 ```
+
+> **多组机械臂说明**：如需使用第二组机械臂采集，改为 `--robot.port=can_follower2 --teleop.port=can_master2`
 
 开启触觉传感器时追加：
 ```bash
@@ -181,7 +210,9 @@ lerobot-record \
   # 或 4chips
 ```
 
-数据保存至：`~/.cache/huggingface/lerobot/FangYuxuan/record_test003/`
+数据保存至：`~/.cache/huggingface/lerobot/FangYuxuan/pick_place_soft_20260427_0001/`
+rm -rf ~/.cache/huggingface/lerobot/FangYuxuan/pick_place_soft_20260427_0002
+ls ~/.cache/huggingface/lerobot/FangYuxuan
 
 ### 键盘快捷键
 
@@ -201,8 +232,8 @@ crab 训练流水线通过 `episodes_dir / {task}/{session}` 定位数据。**Hu
 
 | 层级 | 含义 | 示例 |
 |------|------|------|
-| `{task}` | 任务类型 | `pick_and_place_piper` |
-| `{session}` | 采集批次 | `pick_place_soft_20260427_1430` |
+| `{task}` | 任务类型 | `pick_and_place_task1` |
+| `{session}` | 采集批次 | `pick_place_soft_20260427_0001` |
 
 会话命名格式：`pick_place_{难度}_{YYYYMMDD}_{HHMM}`
 
@@ -214,8 +245,8 @@ lerobot 录制数据默认保存为平坦结构，上传时通过第三个参数
 export HF_ENDPOINT=https://hf-mirror.com
 
 hf upload FangYuxuan/piper-tactile-dataset \
-  ~/.cache/huggingface/lerobot/FangYuxuan/record_test003 \
-  pick_and_place_piper/pick_place_soft_20260427_1430 \
+  ~/.cache/huggingface/lerobot/FangYuxuan/pick_place_soft_20260427_1019 \
+  pick_and_place_task1/pick_place_soft_20260427_1019 \
   --repo-type dataset
 ```
 
@@ -240,7 +271,9 @@ FangYuxuan/piper-tactile-dataset
 
 ```bash
 conda activate crab
-python utils/teleop_disable.py
+# 失能所有机械臂（默认）
+python src/lerobot/utils/teleop_disable.py
+
 ```
 
 ---
@@ -257,6 +290,7 @@ python examples/rtc/eval_with_real_robot.py \
   --policy.path=FangYuxuan/pi05_catch_banana \
   --robot.type=piper_follower \
   --robot.id=my_follower_arm \
+  --robot.port=can_follower \
   --task="Pick up the object and place it." \
   --duration=120 \
   --action_queue_size_to_get_new_actions=30 \
@@ -264,6 +298,8 @@ python examples/rtc/eval_with_real_robot.py \
   --rtc.execution_horizon=5 \
   --device=cuda
 ```
+
+> 使用第二组机械臂推理：`--robot.port=can_follower2`
 
 ### 异步推理（模型跑在 A100）
 
@@ -279,6 +315,7 @@ python -m src.lerobot.async_inference.robot_client \
     --server_address=127.0.0.1:8080 \
     --robot.type=piper_follower \
     --robot.id=my_follower_arm \
+    --robot.port=can_follower \
     --task="Pick up the object and place it." \
     --policy_type=pi05 \
     --pretrained_name_or_path=FangYuxuan/pi05_catch_banana \
@@ -287,6 +324,8 @@ python -m src.lerobot.async_inference.robot_client \
     --chunk_size_threshold=0.5 \
     --aggregate_fn_name=weighted_average
 ```
+
+> 使用第二组机械臂：`--robot.port=can_follower2`
 
 ---
 
